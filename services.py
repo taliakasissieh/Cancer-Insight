@@ -111,6 +111,150 @@ def fetch_research(cancer_type: str, api_key: str) -> tuple[pd.DataFrame, pd.Ser
     return papers_df, treatment_counts
 
 
+
+# --- Cancer-specific research relevance filtering ---------------------------------
+CANCER_TEXT_ALIASES: dict[str, list[str]] = {
+    "breast": ["breast cancer", "breast carcinoma", "breast neoplasm", "mammary carcinoma", "mammary cancer", "triple-negative breast", "triple negative breast", "tnbc", "her2-positive breast", "her2 positive breast", "ductal carcinoma", "lobular carcinoma", "dcis"],
+    "lung": ["lung cancer", "lung carcinoma", "lung neoplasm", "pulmonary carcinoma", "lung adenocarcinoma", "non-small cell lung", "non small cell lung", "nsclc", "small cell lung", "sclc"],
+    "brain": ["brain cancer", "brain tumor", "brain tumour", "brain neoplasm", "glioma", "glioblastoma", "astrocytoma", "oligodendroglioma", "ependymoma", "medulloblastoma", "brainstem glioma", "cns tumor", "cns tumour"],
+    "prostate": ["prostate cancer", "prostate carcinoma", "prostatic carcinoma", "prostate adenocarcinoma"],
+    "colon": ["colon cancer", "colon carcinoma", "colonic carcinoma", "colorectal cancer", "colorectal carcinoma"],
+    "colorectal": ["colorectal cancer", "colorectal carcinoma", "colon cancer", "rectal cancer", "rectal carcinoma"],
+    "pancreatic": ["pancreatic cancer", "pancreatic carcinoma", "pancreatic adenocarcinoma", "pancreas cancer"],
+    "pancreas": ["pancreatic cancer", "pancreatic carcinoma", "pancreatic adenocarcinoma", "pancreas cancer"],
+    "liver": ["liver cancer", "liver carcinoma", "hepatic cancer", "hepatocellular carcinoma", "hcc"],
+    "kidney": ["kidney cancer", "renal cancer", "renal cell carcinoma", "rcc", "kidney carcinoma"],
+    "ovarian": ["ovarian cancer", "ovarian carcinoma", "ovary cancer"],
+    "ovary": ["ovarian cancer", "ovarian carcinoma", "ovary cancer"],
+    "cervical": ["cervical cancer", "cervical carcinoma", "cervix cancer"],
+    "cervix": ["cervical cancer", "cervical carcinoma", "cervix cancer"],
+    "thyroid": ["thyroid cancer", "thyroid carcinoma", "papillary thyroid carcinoma", "follicular thyroid carcinoma", "medullary thyroid carcinoma"],
+    "bladder": ["bladder cancer", "bladder carcinoma", "urothelial carcinoma"],
+    "stomach": ["stomach cancer", "gastric cancer", "gastric carcinoma"],
+    "gastric": ["stomach cancer", "gastric cancer", "gastric carcinoma"],
+    "esophageal": ["esophageal cancer", "oesophageal cancer", "esophageal carcinoma", "oesophageal carcinoma"],
+    "skin": ["skin cancer", "melanoma", "cutaneous carcinoma", "basal cell carcinoma", "cutaneous squamous cell carcinoma"],
+    "melanoma": ["melanoma", "malignant melanoma", "skin cancer"],
+    "leukemia": ["leukemia", "leukaemia", "acute myeloid leukemia", "acute lymphoblastic leukemia", "chronic myeloid leukemia", "chronic lymphocytic leukemia"],
+    "lymphoma": ["lymphoma", "hodgkin lymphoma", "non-hodgkin lymphoma", "non hodgkin lymphoma"],
+}
+
+def _cancer_base(cancer_type: str) -> str:
+    value = re.sub(r"\s+", " ", (cancer_type or "").strip().lower())
+    return re.sub(r"\bcancer\b", "", value).strip()
+
+def cancer_text_aliases(cancer_type: str) -> list[str]:
+    base = _cancer_base(cancer_type)
+    if not base:
+        return []
+    aliases = [f"{base} cancer", f"{base} carcinoma", f"{base} neoplasm"]
+    aliases.extend(CANCER_TEXT_ALIASES.get(base, []))
+    return list(dict.fromkeys(a.strip().lower() for a in aliases if a.strip()))
+
+def _normalized_text(value: Any) -> str:
+    if isinstance(value, list):
+        value = " ".join(str(x) for x in value)
+    text = unescape(str(value or "")).lower()
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+def cancer_relevance_score(row: pd.Series, cancer_type: str) -> int:
+    aliases = cancer_text_aliases(cancer_type)
+    base = _cancer_base(cancer_type)
+    if not aliases or not base:
+        return 0
+    title = _normalized_text(row.get("pubmed_title", "")) or _normalized_text(row.get("title", ""))
+    abstract = _normalized_text(row.get("pubmed_abstract", "")) or _normalized_text(row.get("abstract", ""))
+    mesh = _normalized_text(row.get("mesh_terms", ""))
+    cancer_meta = _normalized_text(row.get("cancerTypes", ""))
+    score = 0
+    title_hits = [a for a in aliases if a in title]
+    abstract_hits = [a for a in aliases if a in abstract]
+    mesh_hits = [a for a in aliases if a in mesh]
+    if title_hits:
+        score += 14 + min(len(title_hits) - 1, 2) * 2
+    elif re.search(rf"\b{re.escape(base)}\b", title) and any(k in title for k in ["cancer", "carcinoma", "tumor", "tumour", "neoplasm"]):
+        score += 10
+    if abstract_hits:
+        score += 6 + min(len(abstract_hits) - 1, 2)
+    if mesh_hits:
+        score += 6
+    if any(a in cancer_meta for a in aliases) or re.search(rf"\b{re.escape(base)}\b", cancer_meta):
+        score += 10
+    if re.search(rf"\b{re.escape(base)}\b", mesh) and any(k in mesh for k in ["neoplasm", "neoplasms", "carcinoma", "tumor", "tumour"]):
+        score += 5
+    other_sites = {"breast", "lung", "brain", "prostate", "colon", "colorectal", "rectal", "pancreatic", "pancreas", "liver", "kidney", "ovarian", "ovary", "cervical", "cervix", "thyroid", "bladder", "gastric", "stomach", "esophageal", "oesophageal", "melanoma", "leukemia", "leukaemia", "lymphoma"}
+    if not title_hits:
+        for other in other_sites - {base}:
+            if re.search(rf"\b{re.escape(other)}\b", title) and any(k in title for k in ["cancer", "carcinoma", "adenocarcinoma", "malignancy", "tumor", "tumour"]):
+                score -= 8
+                break
+    return score
+
+def filter_cancer_relevant_papers(papers_df: pd.DataFrame, cancer_type: str, min_score: int = 10) -> pd.DataFrame:
+    if papers_df is None or papers_df.empty:
+        return pd.DataFrame() if papers_df is None else papers_df.copy()
+    filtered = papers_df.copy()
+    filtered["_cancer_relevance"] = filtered.apply(lambda row: cancer_relevance_score(row, cancer_type), axis=1)
+    filtered = filtered[filtered["_cancer_relevance"] >= min_score].copy()
+    filtered["_relevance_year"] = filtered.apply(lambda row: extract_year(row.get("pubmed_date", "")) or extract_year(row.get("publicationDate", "")) or 0, axis=1)
+    filtered = filtered.sort_values(["_cancer_relevance", "_relevance_year"], ascending=[False, False])
+    return filtered.drop(columns=["_cancer_relevance", "_relevance_year"], errors="ignore")
+
+def search_pubmed_cancer_papers(cancer_type: str, limit: int = 40) -> pd.DataFrame:
+    aliases = cancer_text_aliases(cancer_type)
+    base = _cancer_base(cancer_type)
+    if not aliases or not base:
+        return pd.DataFrame()
+    chosen = aliases[:8]
+    title_abs = " OR ".join(f'"{a}"[Title/Abstract]' for a in chosen)
+    mesh_query = f'"{base} neoplasms"[MeSH Terms]'
+    term = f"({title_abs} OR {mesh_query})"
+    try:
+        response = requests.get(PUBMED_ESEARCH_URL, headers={"User-Agent": USER_AGENT}, params={"db": "pubmed", "term": term, "retmode": "json", "retmax": max(limit, 20), "sort": "pub date", "tool": "CancerInsight"}, timeout=25)
+        response.raise_for_status()
+        ids = response.json().get("esearchresult", {}).get("idlist", [])
+    except (requests.RequestException, ValueError):
+        return pd.DataFrame()
+    if not ids:
+        return pd.DataFrame()
+    metadata = fetch_pubmed_metadata(ids)
+    rows: list[dict[str, Any]] = []
+    for pmid in ids:
+        info = metadata.get(pmid)
+        if not info:
+            continue
+        row = {"pubmedId": pmid, **info, "treatmentTypes": [], "cancerTypes": [cancer_type]}
+        row["pubmed_url"] = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+        pmc_id = str(info.get("pmc_id", "") or "").strip()
+        row["pmc_url"] = f"https://pmc.ncbi.nlm.nih.gov/articles/{pmc_id}/" if pmc_id else ""
+        row["publisher_url"] = ""
+        row["access_status"] = "Free full text in PMC" if pmc_id else ("PubMed abstract" if info.get("pubmed_abstract") else "PubMed record")
+        rows.append(row)
+    result = pd.DataFrame(rows)
+    return filter_cancer_relevant_papers(result, cancer_type, min_score=10)
+
+def treatment_counts_from_papers(papers_df: pd.DataFrame) -> pd.Series:
+    values: list[str] = []
+    if papers_df is not None and not papers_df.empty and "treatmentTypes" in papers_df.columns:
+        for value in papers_df["treatmentTypes"]:
+            values.extend(normalize_treatment(item) for item in _iter_treatment_values(value) if item.strip())
+    return pd.Series(values, dtype="object").value_counts()
+
+def build_relevant_research_set(papers_df: pd.DataFrame, cancer_type: str, target_count: int = 20) -> pd.DataFrame:
+    relevant = filter_cancer_relevant_papers(papers_df, cancer_type, min_score=10)
+    if len(relevant) < target_count:
+        supplemental = search_pubmed_cancer_papers(cancer_type, limit=max(40, target_count * 2))
+        if not supplemental.empty:
+            combined = pd.concat([relevant, supplemental], ignore_index=True, sort=False)
+            if "pubmedId" in combined.columns:
+                ids = combined["pubmedId"].fillna("").astype(str).str.strip()
+                with_id = combined[ids.ne("")].drop_duplicates(subset=["pubmedId"], keep="first")
+                without_id = combined[ids.eq("")]
+                combined = pd.concat([with_id, without_id], ignore_index=True, sort=False)
+            relevant = filter_cancer_relevant_papers(combined, cancer_type, min_score=10)
+    return relevant.head(target_count).reset_index(drop=True)
+
 def _parse_pubmed_date(article: ET.Element) -> str:
     for path in [
         ".//Article/ArticleDate",

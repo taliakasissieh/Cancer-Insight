@@ -17,6 +17,8 @@ from services import (
     enrich_with_pubmed,
     fetch_images,
     fetch_research,
+    build_relevant_research_set,
+    treatment_counts_from_papers,
     format_value,
     key_findings_from_papers,
     normalize_treatment,
@@ -159,10 +161,16 @@ def navigation() -> str:
 
 
 def run_search(cancer_type: str) -> None:
-    papers, treatments = fetch_research(cancer_type, api_key())
-    papers = enrich_with_pubmed(papers)
+    raw_papers, _ = fetch_research(cancer_type, api_key())
+    enriched = enrich_with_pubmed(raw_papers)
+    papers = build_relevant_research_set(enriched, cancer_type, target_count=20)
+    if papers.empty:
+        raise CancerInsightError(
+            "No sufficiently relevant research papers were found for that cancer type. "
+            "Try a more specific cancer name."
+        )
     st.session_state.papers = papers
-    st.session_state.treatments = treatments
+    st.session_state.treatments = treatment_counts_from_papers(papers)
     st.session_state.images = fetch_images(cancer_type)
     st.session_state.images_for = cancer_type.strip().lower()
     st.session_state.cancer_type = cancer_type.strip()
