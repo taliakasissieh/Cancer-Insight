@@ -259,7 +259,7 @@ def render_paper(row: pd.Series, number: int | None = None, compact: bool = Fals
 
     treatment_value = row.get("treatmentTypes", "")
     if treatment_value not in [None, ""]:
-        st.markdown(f"**Treatment tags:** {format_value(treatment_value)}")
+        st.markdown(f"**Treatments mentioned in evidence:** {format_value(treatment_value)}")
 
     abstract = best_abstract(row)
     if abstract:
