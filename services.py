@@ -1093,6 +1093,13 @@ def _image_relevance_score(cancer_type: str, title: str, description: str = "", 
     if any(term in combined for term in blocked_terms):
         return None
 
+    # A cancer mentioned only in past medical history does not make the depicted lesion a
+    # cancer image. This specifically prevents TB/tuberculoma studies from entering a lung-
+    # cancer gallery when the current finding is explicitly described as infectious.
+    if base == "lung" and any(term in title_l for term in {"tuberculoma", "tuberculosis"}):
+        if not any(alias in title_l for alias in aliases):
+            return None
+
     # Cancer Images is an image gallery, not a document archive. Reject PDFs/DjVu files and
     # obvious book/report scans even when OCR text happens to contain the cancer name.
     lower_title = title_l.strip()
