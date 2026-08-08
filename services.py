@@ -294,13 +294,18 @@ def infer_treatment_tags(row: pd.Series) -> list[str]:
     mesh = _normalized_text(row.get("mesh_terms", ""))
     tags = list(dict.fromkeys(existing))
 
-    # Explicitly prevent biology phrases from being mistaken for transplantation.
-    stem_biology_only = bool(re.search(r"\b(?:cancer|tumou?r) stem(?:[- ]like)? cells?\b|\bstem[- ]like phenotype\b", f"{title} {abstract}"))
+    # Stem-cell transplantation is a specific clinical treatment. Never trust a
+    # pre-existing/API tag by itself: keep it only when the PubMed evidence contains
+    # explicit transplantation language (HSCT, bone-marrow transplant, etc.). This
+    # prevents cancer stem cells, stem-like phenotypes, and stemness research from
+    # being mislabeled as stem-cell transplantation.
+    full_evidence = f"{title} {mesh} {abstract}"
 
     for treatment, patterns in TREATMENT_PATTERNS.items():
         if treatment in tags:
-            # Remove an API stem-cell tag when the record only discusses cancer stem biology.
-            if treatment == "stem cell transplant" and stem_biology_only and not any(re.search(p, f"{title} {mesh} {abstract}") for p in patterns["strong"]):
+            if treatment == "stem cell transplant" and not any(
+                re.search(p, full_evidence) for p in patterns["strong"]
+            ):
                 tags.remove(treatment)
             continue
         strong = patterns["strong"]
