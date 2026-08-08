@@ -116,7 +116,7 @@ def fetch_research(cancer_type: str, api_key: str) -> tuple[pd.DataFrame, pd.Ser
 CANCER_TEXT_ALIASES: dict[str, list[str]] = {
     "breast": ["breast cancer", "breast carcinoma", "breast neoplasm", "mammary carcinoma", "mammary cancer", "triple-negative breast", "triple negative breast", "tnbc", "her2-positive breast", "her2 positive breast", "ductal carcinoma", "lobular carcinoma", "dcis"],
     "lung": ["lung cancer", "lung carcinoma", "lung neoplasm", "pulmonary carcinoma", "lung adenocarcinoma", "non-small cell lung", "non small cell lung", "nsclc", "small cell lung", "sclc"],
-    "brain": ["brain cancer", "brain tumor", "brain tumour", "brain neoplasm", "glioma", "glioblastoma", "astrocytoma", "oligodendroglioma", "ependymoma", "medulloblastoma", "brainstem glioma", "cns tumor", "cns tumour"],
+    "brain": ["brain cancer", "brain tumor", "brain tumour", "brain neoplasm", "glioma", "glioblastoma", "astrocytoma", "oligodendroglioma", "ependymoma", "medulloblastoma", "brainstem glioma", "diffuse intrinsic pontine glioma", "diffuse midline glioma", "dipg", "dmg", "cns tumor", "cns tumour", "central nervous system tumor", "central nervous system tumour"],
     "prostate": ["prostate cancer", "prostate carcinoma", "prostatic carcinoma", "prostate adenocarcinoma"],
     "colon": ["colon cancer", "colon carcinoma", "colonic carcinoma", "colorectal cancer", "colorectal carcinoma"],
     "colorectal": ["colorectal cancer", "colorectal carcinoma", "colon cancer", "rectal cancer", "rectal carcinoma"],
@@ -203,6 +203,29 @@ def cancer_relevance_score(row: pd.Series, cancer_type: str) -> int:
         ]
         explicit_breast_cancer = any(a in title for a in aliases) or bool(re.search(r"\bbreast (?:cancer|carcinoma|neoplasm|tumou?r)\b", title))
         if any(re.search(p, title) for p in off_topic) and not explicit_breast_cancer:
+            score -= 20
+
+    # Brain-specific precision guardrail. Generic pan-cancer, neurological,
+    # neuroendocrine, or general oncology papers must not qualify merely because
+    # their abstract/API metadata mentions the brain. Require the paper title or
+    # MeSH evidence to explicitly identify a primary brain/CNS tumour entity.
+    if base == "brain":
+        brain_anchors = [
+            r"\bbrain (?:cancer|tumou?r|neoplasm)s?\b",
+            r"\bgliomas?\b", r"\bglioblastomas?\b",
+            r"\bastrocytomas?\b", r"\boligodendrogliomas?\b",
+            r"\bependymomas?\b", r"\bmedulloblastomas?\b",
+            r"\bbrainstem gliomas?\b",
+            r"\bdiffuse intrinsic pontine gliomas?\b",
+            r"\bdiffuse midline gliomas?\b",
+            r"\bdipg\b", r"\bdmg\b",
+            r"\bcns (?:tumou?r|neoplasm)s?\b",
+            r"\bcentral nervous system (?:tumou?r|neoplasm)s?\b",
+        ]
+        anchored = any(re.search(p, title) for p in brain_anchors) or any(
+            re.search(p, mesh) for p in brain_anchors
+        )
+        if not anchored:
             score -= 20
     return score
 
