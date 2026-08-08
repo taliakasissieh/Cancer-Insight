@@ -189,12 +189,28 @@ def cancer_relevance_score(row: pd.Series, cancer_type: str) -> int:
             if re.search(rf"\b{re.escape(other)}\b", title) and any(k in title for k in ["cancer", "carcinoma", "adenocarcinoma", "malignancy", "tumor", "tumour"]):
                 score -= 8
                 break
+
+    # Breast-specific precision guardrails: these topics can contain the word
+    # "breast" while not being breast-cancer evidence. Keep them only when the
+    # title itself explicitly anchors the work to breast cancer/oncology.
+    if base == "breast":
+        off_topic = [
+            r"\baugmentation mastopexy\b", r"\bmastopexy\b",
+            r"\bcosmetic breast\b", r"\bbreast augmentation\b",
+            r"\blatest research in microsurgery\b",
+            r"\baccess to mammograph", r"\bmammography screening access\b",
+            r"\bcancer screening\b", r"\bhereditary gynecologic cancer\b",
+        ]
+        explicit_breast_cancer = any(a in title for a in aliases) or bool(re.search(r"\bbreast (?:cancer|carcinoma|neoplasm|tumou?r)\b", title))
+        if any(re.search(p, title) for p in off_topic) and not explicit_breast_cancer:
+            score -= 20
     return score
 
 def filter_cancer_relevant_papers(papers_df: pd.DataFrame, cancer_type: str, min_score: int = 10) -> pd.DataFrame:
     if papers_df is None or papers_df.empty:
         return pd.DataFrame() if papers_df is None else papers_df.copy()
     filtered = papers_df.copy()
+    filtered = filtered[~filtered.apply(is_retracted_record, axis=1)].copy()
     filtered["_cancer_relevance"] = filtered.apply(lambda row: cancer_relevance_score(row, cancer_type), axis=1)
     filtered = filtered[filtered["_cancer_relevance"] >= min_score].copy()
     filtered["_relevance_year"] = filtered.apply(lambda row: extract_year(row.get("pubmed_date", "")) or extract_year(row.get("publicationDate", "")) or 0, axis=1)
@@ -234,149 +250,91 @@ def search_pubmed_cancer_papers(cancer_type: str, limit: int = 40) -> pd.DataFra
     result = pd.DataFrame(rows)
     return filter_cancer_relevant_papers(result, cancer_type, min_score=10)
 
-# --- Treatment inference ---------------------------------------------------------
-# The source research API sometimes leaves treatmentTypes empty even when a paper
-# clearly studies a treatment.  These rules add conservative, explainable tags
-# from PubMed titles/abstracts/MeSH terms while preserving any original API tags.
-TREATMENT_INFERENCE_RULES: dict[str, dict[str, list[str]]] = {
+
+
+# --- Conservative treatment inference -------------------------------------------
+TREATMENT_PATTERNS: dict[str, dict[str, list[str]]] = {
     "chemotherapy": {
-        "strong": [
-            "chemotherapy", "chemotherapeutic", "chemoimmunotherapy", "chemoradiation",
-            "docetaxel", "paclitaxel", "carboplatin", "cisplatin", "doxorubicin",
-            "cyclophosphamide", "anthracycline", "capecitabine", "gemcitabine",
-            "fluorouracil", "5-fluorouracil", "5-fu", "eribulin", "vinorelbine",
-        ],
-        "support": ["cytotoxic chemotherapy", "platinum-based", "platinum based"],
+        "strong": [r"\bchemotherap(?:y|ies)\b", r"\bdocetaxel\b", r"\bpaclitaxel\b", r"\bdoxorubicin\b", r"\bcyclophosphamide\b", r"\bcarboplatin\b", r"\bcisplatin\b", r"\bcapecitabine\b"],
+        "support": [r"\bcytotoxic (?:drug|therapy|treatment)s?\b", r"\bchemotherapeutic(?:s| agents?)?\b"],
     },
     "immunotherapy": {
-        "strong": [
-            "immunotherapy", "immune checkpoint", "checkpoint inhibitor", "pd-1 inhibitor",
-            "pd-l1 inhibitor", "pd-1/pd-l1", "pembrolizumab", "nivolumab", "atezolizumab",
-            "durvalumab", "ipilimumab", "car-t", "car t-cell", "car t cell",
-            "immune checkpoint blockade", "immunostimulant", "immunomodulatory",
-        ],
-        "support": ["anti-pd-1", "anti-pd-l1", "checkpoint blockade"],
+        "strong": [r"\bimmunotherap(?:y|ies)\b", r"\bimmune checkpoint inhibitor(?:s)?\b", r"\bcheckpoint blockade\b", r"\bpd-?1 inhibitor(?:s)?\b", r"\bpd-?l1 inhibitor(?:s)?\b", r"\bcar[- ]t(?: cell)? therap(?:y|ies)\b", r"\bpembrolizumab\b", r"\batezolizumab\b", r"\bnivolumab\b"],
+        "support": [r"\bimmune[- ]based therap(?:y|ies)\b", r"\bimmunomodulatory treatment\b"],
     },
     "targeted therapy": {
-        "strong": [
-            "targeted therapy", "targeted treatment", "tyrosine kinase inhibitor", "tki",
-            "cdk4/6 inhibitor", "cdk 4/6 inhibitor", "parp inhibitor", "alk inhibitor",
-            "egfr inhibitor", "braf inhibitor", "mek inhibitor", "her2-targeted",
-            "her2 targeted", "trastuzumab", "pertuzumab", "lapatinib", "tucatinib",
-            "olaparib", "talazoparib", "palbociclib", "ribociclib", "abemaciclib",
-            "antibody-drug conjugate", "antibody drug conjugate",
-        ],
-        "support": ["molecularly targeted", "targeted agent", "kinase inhibitor"],
+        "strong": [r"\btargeted therap(?:y|ies)\b", r"\btyrosine kinase inhibitor(?:s)?\b", r"\bcdk4/?6 inhibitor(?:s)?\b", r"\bparp inhibitor(?:s)?\b", r"\btrastuzumab(?: deruxtecan)?\b", r"\bpertuzumab\b", r"\bolaparib\b", r"\btucatinib\b"],
+        "support": [r"\bher2[- ]targeted\b", r"\bmolecularly targeted\b"],
     },
     "hormone therapy": {
-        "strong": [
-            "hormone therapy", "hormonal therapy", "endocrine therapy", "antiestrogen",
-            "anti-estrogen", "tamoxifen", "aromatase inhibitor", "letrozole", "anastrozole",
-            "exemestane", "fulvestrant", "androgen deprivation", "antiandrogen",
-        ],
-        "support": ["estrogen receptor blockade", "endocrine treatment"],
+        "strong": [r"\bhormone therap(?:y|ies)\b", r"\bhormonal therap(?:y|ies)\b", r"\bendocrine therap(?:y|ies)\b", r"\btamoxifen\b", r"\baromatase inhibitor(?:s)?\b", r"\bfulvestrant\b"],
+        "support": [r"\bestrogen receptor[- ]targeted\b", r"\banti[- ]estrogen therap(?:y|ies)\b"],
     },
     "radiation": {
-        "strong": [
-            "radiotherapy", "radiation therapy", "radiation treatment", "chemoradiation",
-            "irradiation", "stereotactic radiotherapy", "stereotactic body radiation",
-            "sbrt", "brachytherapy", "proton therapy",
-        ],
-        "support": ["radiation dose", "radiation oncology"],
+        "strong": [r"\bradiation therap(?:y|ies)\b", r"\bradiotherap(?:y|ies)\b", r"\bexternal beam radiation\b", r"\bstereotactic (?:body )?radiation therap(?:y|ies)\b", r"\bbrachytherap(?:y|ies)\b"],
+        "support": [r"\bchemoradiation\b", r"\bchemoradiotherapy\b"],
     },
     "surgery": {
-        "strong": [
-            "surgery", "surgical treatment", "surgical resection", "tumor resection",
-            "tumour resection", "mastectomy", "lumpectomy", "breast-conserving surgery",
-            "breast conserving surgery", "lobectomy", "pneumonectomy", "colectomy",
-            "prostatectomy", "hepatectomy", "pancreatectomy", "lymph node dissection",
-        ],
-        "support": ["operative treatment", "resection margin", "surgical procedure"],
+        "strong": [r"\bmastectom(?:y|ies)\b", r"\blumpectom(?:y|ies)\b", r"\bbreast[- ]conserving surgery\b", r"\btumou?r resection\b", r"\bsurgical resection\b", r"\bnephrectom(?:y|ies)\b", r"\bprostatectom(?:y|ies)\b", r"\bcolectom(?:y|ies)\b"],
+        "support": [r"\bsurgical treatment\b", r"\bsurgical therap(?:y|ies)\b"],
     },
     "stem cell transplant": {
-        "strong": [
-            "stem cell transplant", "stem-cell transplant", "stem cell transplantation",
-            "hematopoietic stem cell transplantation", "haematopoietic stem cell transplantation",
-            "hsct", "bone marrow transplant", "bone marrow transplantation",
-        ],
-        "support": ["autologous transplant", "allogeneic transplant"],
+        # Deliberately requires transplantation language.  "Cancer stem cell" and
+        # "stem-like" describe tumour biology and must never trigger this tag.
+        "strong": [r"\bstem cell transplant(?:ation)?s?\b", r"\bhematopoietic stem cell transplant(?:ation)?s?\b", r"\bhaematopoietic stem cell transplant(?:ation)?s?\b", r"\bhsct\b", r"\bbone marrow transplant(?:ation)?s?\b", r"\bautologous stem cell transplant(?:ation)?s?\b", r"\ballogeneic stem cell transplant(?:ation)?s?\b"],
+        "support": [],
     },
 }
 
-def _contains_treatment_term(text: str, term: str) -> bool:
-    text = text or ""
-    term = term.lower().strip()
-    if not term:
-        return False
-    # Short abbreviations need word boundaries so e.g. 'tki' does not match inside another word.
-    if re.fullmatch(r"[a-z0-9+-]{2,6}", term):
-        return re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text) is not None
-    return term in text
 
 def infer_treatment_tags(row: pd.Series) -> list[str]:
-    """Return conservative treatment tags inferred from a paper plus original API tags.
-
-    Title and MeSH evidence are trusted most. Abstract-only mentions require repeated,
-    independent treatment signals so a paper is not tagged merely because it lists a
-    therapy in background/context text.
-    """
     existing = [normalize_treatment(x) for x in _iter_treatment_values(row.get("treatmentTypes", [])) if str(x).strip()]
-    tags: list[str] = list(dict.fromkeys(existing))
-
     title = _normalized_text(row.get("pubmed_title", "")) or _normalized_text(row.get("title", ""))
     abstract = _normalized_text(row.get("pubmed_abstract", "")) or _normalized_text(row.get("abstract", ""))
     mesh = _normalized_text(row.get("mesh_terms", ""))
+    tags = list(dict.fromkeys(existing))
 
-    # Photodynamic therapy uses light + photosensitizers; it is not radiation therapy.
-    # Prevent the word "radiation" elsewhere in an abstract from turning a PDT paper
-    # into a radiation-therapy paper.
-    is_photodynamic = any(term in title or term in mesh for term in (
-        "photodynamic therapy", "photodynamic treatment", "photodynamic cancer therapy",
-        "photodynamic", "photosensitizer", "photosensitiser",
-    ))
+    # Explicitly prevent biology phrases from being mistaken for transplantation.
+    stem_biology_only = bool(re.search(r"\b(?:cancer|tumou?r) stem(?:[- ]like)? cells?\b|\bstem[- ]like phenotype\b", f"{title} {abstract}"))
 
-    for treatment, groups in TREATMENT_INFERENCE_RULES.items():
+    for treatment, patterns in TREATMENT_PATTERNS.items():
         if treatment in tags:
+            # Remove an API stem-cell tag when the record only discusses cancer stem biology.
+            if treatment == "stem cell transplant" and stem_biology_only and not any(re.search(p, f"{title} {mesh} {abstract}") for p in patterns["strong"]):
+                tags.remove(treatment)
             continue
-        if treatment == "radiation" and is_photodynamic:
-            continue
-
-        title_score = 0
-        mesh_score = 0
-        abstract_strong_hits = 0
-        abstract_support_hits = 0
-
-        for term in groups.get("strong", []):
-            if _contains_treatment_term(title, term):
-                title_score += 5
-            if _contains_treatment_term(mesh, term):
-                mesh_score += 4
-            if _contains_treatment_term(abstract, term):
-                abstract_strong_hits += 1
-
-        for term in groups.get("support", []):
-            if _contains_treatment_term(title, term):
-                title_score += 4
-            if _contains_treatment_term(mesh, term):
-                mesh_score += 3
-            if _contains_treatment_term(abstract, term):
-                abstract_support_hits += 1
-
-        # One clear title/MeSH signal is enough. Abstract-only inference is deliberately
-        # stricter: require at least two strong terms, or one strong + two support terms.
-        title_or_mesh = (title_score + mesh_score) >= 4
-        abstract_only = (abstract_strong_hits >= 2) or (abstract_strong_hits >= 1 and abstract_support_hits >= 2)
-        if title_or_mesh or abstract_only:
+        strong = patterns["strong"]
+        support = patterns["support"]
+        # Title and MeSH are high-confidence. Abstract-only tagging is deliberately
+        # stricter: an explicit treatment phrase/drug must occur, not a generic word.
+        title_or_mesh = f"{title} {mesh}"
+        if any(re.search(p, title_or_mesh) for p in strong):
+            tags.append(treatment)
+        elif any(re.search(p, abstract) for p in strong):
+            tags.append(treatment)
+        elif support and any(re.search(p, title_or_mesh) for p in support):
             tags.append(treatment)
 
-    return tags
+    # Photodynamic therapy uses a photosensitizer/light; it is not radiation therapy.
+    if "radiation" in tags and "photodynamic therap" in f"{title} {abstract} {mesh}":
+        if not re.search(r"\bradiation therap|\bradiotherap|\bexternal beam radiation|\bbrachytherap|\bchemoradi", f"{title} {abstract} {mesh}"):
+            tags.remove("radiation")
+    return list(dict.fromkeys(tags))
 
-def enrich_treatment_tags(papers_df: pd.DataFrame) -> pd.DataFrame:
+
+def is_retracted_record(row: pd.Series) -> bool:
+    title = _normalized_text(row.get("pubmed_title", "")) or _normalized_text(row.get("title", ""))
+    pub_types = _normalized_text(row.get("publication_types", ""))
+    return title.startswith("[retracted]") or "retraction notice" in pub_types or "retracted publication" in pub_types
+
+
+def apply_treatment_inference(papers_df: pd.DataFrame) -> pd.DataFrame:
     if papers_df is None or papers_df.empty:
         return pd.DataFrame() if papers_df is None else papers_df.copy()
-    tagged = papers_df.copy()
-    tagged["treatmentTypes"] = tagged.apply(infer_treatment_tags, axis=1)
-    return tagged
+    out = papers_df.copy()
+    out["treatmentTypes"] = out.apply(infer_treatment_tags, axis=1)
+    return out
+
 
 def treatment_counts_from_papers(papers_df: pd.DataFrame) -> pd.Series:
     values: list[str] = []
@@ -385,32 +343,10 @@ def treatment_counts_from_papers(papers_df: pd.DataFrame) -> pd.Series:
             values.extend(normalize_treatment(item) for item in _iter_treatment_values(value) if item.strip())
     return pd.Series(values, dtype="object").value_counts()
 
-def _is_retracted_or_retraction_notice(row: pd.Series) -> bool:
-    """True for PubMed retractions/retraction notices that should not enter evidence sets."""
-    title = _normalized_text(row.get("pubmed_title", "")) or _normalized_text(row.get("title", ""))
-    types = row.get("publication_types", [])
-    if isinstance(types, list):
-        type_text = " ".join(str(x).lower() for x in types)
-    else:
-        type_text = _normalized_text(types)
-    if "retraction notice" in type_text or "retracted publication" in type_text:
-        return True
-    if title.startswith("[retracted]") or title.startswith("retracted:") or "[retracted]" in title:
-        return True
-    return False
-
-def exclude_retracted_papers(papers_df: pd.DataFrame) -> pd.DataFrame:
-    if papers_df is None or papers_df.empty:
-        return pd.DataFrame() if papers_df is None else papers_df.copy()
-    return papers_df[~papers_df.apply(_is_retracted_or_retraction_notice, axis=1)].copy()
-
 def build_relevant_research_set(papers_df: pd.DataFrame, cancer_type: str, target_count: int = 20) -> pd.DataFrame:
-    # Retractions are excluded before relevance ranking so they cannot displace valid evidence.
-    cleaned = exclude_retracted_papers(papers_df)
-    relevant = filter_cancer_relevant_papers(cleaned, cancer_type, min_score=10)
+    relevant = filter_cancer_relevant_papers(papers_df, cancer_type, min_score=10)
     if len(relevant) < target_count:
         supplemental = search_pubmed_cancer_papers(cancer_type, limit=max(40, target_count * 2))
-        supplemental = exclude_retracted_papers(supplemental)
         if not supplemental.empty:
             combined = pd.concat([relevant, supplemental], ignore_index=True, sort=False)
             if "pubmedId" in combined.columns:
@@ -418,10 +354,9 @@ def build_relevant_research_set(papers_df: pd.DataFrame, cancer_type: str, targe
                 with_id = combined[ids.ne("")].drop_duplicates(subset=["pubmedId"], keep="first")
                 without_id = combined[ids.eq("")]
                 combined = pd.concat([with_id, without_id], ignore_index=True, sort=False)
-            combined = exclude_retracted_papers(combined)
             relevant = filter_cancer_relevant_papers(combined, cancer_type, min_score=10)
-    relevant = relevant.head(target_count).reset_index(drop=True)
-    return enrich_treatment_tags(relevant)
+    relevant = apply_treatment_inference(relevant)
+    return relevant.head(target_count).reset_index(drop=True)
 
 def _parse_pubmed_date(article: ET.Element) -> str:
     for path in [
@@ -1237,4 +1172,3 @@ def fetch_images(cancer_type: str, limit: int = 12) -> list[dict[str, str]]:
         clean.pop("_score", None)
         results.append(clean)
     return results
-
