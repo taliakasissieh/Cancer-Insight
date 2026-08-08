@@ -314,7 +314,12 @@ def _contains_treatment_term(text: str, term: str) -> bool:
     return term in text
 
 def infer_treatment_tags(row: pd.Series) -> list[str]:
-    """Return conservative treatment tags inferred from a paper plus original API tags."""
+    """Return conservative treatment tags inferred from a paper plus original API tags.
+
+    Title and MeSH evidence are trusted most. Abstract-only mentions require repeated,
+    independent treatment signals so a paper is not tagged merely because it lists a
+    therapy in background/context text.
+    """
     existing = [normalize_treatment(x) for x in _iter_treatment_values(row.get("treatmentTypes", [])) if str(x).strip()]
     tags: list[str] = list(dict.fromkeys(existing))
 
@@ -322,28 +327,46 @@ def infer_treatment_tags(row: pd.Series) -> list[str]:
     abstract = _normalized_text(row.get("pubmed_abstract", "")) or _normalized_text(row.get("abstract", ""))
     mesh = _normalized_text(row.get("mesh_terms", ""))
 
+    # Photodynamic therapy uses light + photosensitizers; it is not radiation therapy.
+    # Prevent the word "radiation" elsewhere in an abstract from turning a PDT paper
+    # into a radiation-therapy paper.
+    is_photodynamic = any(term in title or term in mesh for term in (
+        "photodynamic therapy", "photodynamic treatment", "photodynamic cancer therapy",
+        "photodynamic", "photosensitizer", "photosensitiser",
+    ))
+
     for treatment, groups in TREATMENT_INFERENCE_RULES.items():
         if treatment in tags:
             continue
-        score = 0
+        if treatment == "radiation" and is_photodynamic:
+            continue
+
+        title_score = 0
+        mesh_score = 0
+        abstract_strong_hits = 0
+        abstract_support_hits = 0
+
         for term in groups.get("strong", []):
             if _contains_treatment_term(title, term):
-                score += 5
+                title_score += 5
             if _contains_treatment_term(mesh, term):
-                score += 4
+                mesh_score += 4
             if _contains_treatment_term(abstract, term):
-                score += 2
+                abstract_strong_hits += 1
+
         for term in groups.get("support", []):
             if _contains_treatment_term(title, term):
-                score += 4
+                title_score += 4
             if _contains_treatment_term(mesh, term):
-                score += 3
+                mesh_score += 3
             if _contains_treatment_term(abstract, term):
-                score += 1
+                abstract_support_hits += 1
 
-        # A treatment named in the title/MeSH is enough. Abstract-only mentions need
-        # multiple signals, which avoids tagging papers that merely mention a therapy.
-        if score >= 4:
+        # One clear title/MeSH signal is enough. Abstract-only inference is deliberately
+        # stricter: require at least two strong terms, or one strong + two support terms.
+        title_or_mesh = (title_score + mesh_score) >= 4
+        abstract_only = (abstract_strong_hits >= 2) or (abstract_strong_hits >= 1 and abstract_support_hits >= 2)
+        if title_or_mesh or abstract_only:
             tags.append(treatment)
 
     return tags
@@ -362,10 +385,32 @@ def treatment_counts_from_papers(papers_df: pd.DataFrame) -> pd.Series:
             values.extend(normalize_treatment(item) for item in _iter_treatment_values(value) if item.strip())
     return pd.Series(values, dtype="object").value_counts()
 
+def _is_retracted_or_retraction_notice(row: pd.Series) -> bool:
+    """True for PubMed retractions/retraction notices that should not enter evidence sets."""
+    title = _normalized_text(row.get("pubmed_title", "")) or _normalized_text(row.get("title", ""))
+    types = row.get("publication_types", [])
+    if isinstance(types, list):
+        type_text = " ".join(str(x).lower() for x in types)
+    else:
+        type_text = _normalized_text(types)
+    if "retraction notice" in type_text or "retracted publication" in type_text:
+        return True
+    if title.startswith("[retracted]") or title.startswith("retracted:") or "[retracted]" in title:
+        return True
+    return False
+
+def exclude_retracted_papers(papers_df: pd.DataFrame) -> pd.DataFrame:
+    if papers_df is None or papers_df.empty:
+        return pd.DataFrame() if papers_df is None else papers_df.copy()
+    return papers_df[~papers_df.apply(_is_retracted_or_retraction_notice, axis=1)].copy()
+
 def build_relevant_research_set(papers_df: pd.DataFrame, cancer_type: str, target_count: int = 20) -> pd.DataFrame:
-    relevant = filter_cancer_relevant_papers(papers_df, cancer_type, min_score=10)
+    # Retractions are excluded before relevance ranking so they cannot displace valid evidence.
+    cleaned = exclude_retracted_papers(papers_df)
+    relevant = filter_cancer_relevant_papers(cleaned, cancer_type, min_score=10)
     if len(relevant) < target_count:
         supplemental = search_pubmed_cancer_papers(cancer_type, limit=max(40, target_count * 2))
+        supplemental = exclude_retracted_papers(supplemental)
         if not supplemental.empty:
             combined = pd.concat([relevant, supplemental], ignore_index=True, sort=False)
             if "pubmedId" in combined.columns:
@@ -373,6 +418,7 @@ def build_relevant_research_set(papers_df: pd.DataFrame, cancer_type: str, targe
                 with_id = combined[ids.ne("")].drop_duplicates(subset=["pubmedId"], keep="first")
                 without_id = combined[ids.eq("")]
                 combined = pd.concat([with_id, without_id], ignore_index=True, sort=False)
+            combined = exclude_retracted_papers(combined)
             relevant = filter_cancer_relevant_papers(combined, cancer_type, min_score=10)
     relevant = relevant.head(target_count).reset_index(drop=True)
     return enrich_treatment_tags(relevant)
