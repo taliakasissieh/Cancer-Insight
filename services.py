@@ -234,6 +234,127 @@ def search_pubmed_cancer_papers(cancer_type: str, limit: int = 40) -> pd.DataFra
     result = pd.DataFrame(rows)
     return filter_cancer_relevant_papers(result, cancer_type, min_score=10)
 
+# --- Treatment inference ---------------------------------------------------------
+# The source research API sometimes leaves treatmentTypes empty even when a paper
+# clearly studies a treatment.  These rules add conservative, explainable tags
+# from PubMed titles/abstracts/MeSH terms while preserving any original API tags.
+TREATMENT_INFERENCE_RULES: dict[str, dict[str, list[str]]] = {
+    "chemotherapy": {
+        "strong": [
+            "chemotherapy", "chemotherapeutic", "chemoimmunotherapy", "chemoradiation",
+            "docetaxel", "paclitaxel", "carboplatin", "cisplatin", "doxorubicin",
+            "cyclophosphamide", "anthracycline", "capecitabine", "gemcitabine",
+            "fluorouracil", "5-fluorouracil", "5-fu", "eribulin", "vinorelbine",
+        ],
+        "support": ["cytotoxic chemotherapy", "platinum-based", "platinum based"],
+    },
+    "immunotherapy": {
+        "strong": [
+            "immunotherapy", "immune checkpoint", "checkpoint inhibitor", "pd-1 inhibitor",
+            "pd-l1 inhibitor", "pd-1/pd-l1", "pembrolizumab", "nivolumab", "atezolizumab",
+            "durvalumab", "ipilimumab", "car-t", "car t-cell", "car t cell",
+            "immune checkpoint blockade", "immunostimulant", "immunomodulatory",
+        ],
+        "support": ["anti-pd-1", "anti-pd-l1", "checkpoint blockade"],
+    },
+    "targeted therapy": {
+        "strong": [
+            "targeted therapy", "targeted treatment", "tyrosine kinase inhibitor", "tki",
+            "cdk4/6 inhibitor", "cdk 4/6 inhibitor", "parp inhibitor", "alk inhibitor",
+            "egfr inhibitor", "braf inhibitor", "mek inhibitor", "her2-targeted",
+            "her2 targeted", "trastuzumab", "pertuzumab", "lapatinib", "tucatinib",
+            "olaparib", "talazoparib", "palbociclib", "ribociclib", "abemaciclib",
+            "antibody-drug conjugate", "antibody drug conjugate",
+        ],
+        "support": ["molecularly targeted", "targeted agent", "kinase inhibitor"],
+    },
+    "hormone therapy": {
+        "strong": [
+            "hormone therapy", "hormonal therapy", "endocrine therapy", "antiestrogen",
+            "anti-estrogen", "tamoxifen", "aromatase inhibitor", "letrozole", "anastrozole",
+            "exemestane", "fulvestrant", "androgen deprivation", "antiandrogen",
+        ],
+        "support": ["estrogen receptor blockade", "endocrine treatment"],
+    },
+    "radiation": {
+        "strong": [
+            "radiotherapy", "radiation therapy", "radiation treatment", "chemoradiation",
+            "irradiation", "stereotactic radiotherapy", "stereotactic body radiation",
+            "sbrt", "brachytherapy", "proton therapy",
+        ],
+        "support": ["radiation dose", "radiation oncology"],
+    },
+    "surgery": {
+        "strong": [
+            "surgery", "surgical treatment", "surgical resection", "tumor resection",
+            "tumour resection", "mastectomy", "lumpectomy", "breast-conserving surgery",
+            "breast conserving surgery", "lobectomy", "pneumonectomy", "colectomy",
+            "prostatectomy", "hepatectomy", "pancreatectomy", "lymph node dissection",
+        ],
+        "support": ["operative treatment", "resection margin", "surgical procedure"],
+    },
+    "stem cell transplant": {
+        "strong": [
+            "stem cell transplant", "stem-cell transplant", "stem cell transplantation",
+            "hematopoietic stem cell transplantation", "haematopoietic stem cell transplantation",
+            "hsct", "bone marrow transplant", "bone marrow transplantation",
+        ],
+        "support": ["autologous transplant", "allogeneic transplant"],
+    },
+}
+
+def _contains_treatment_term(text: str, term: str) -> bool:
+    text = text or ""
+    term = term.lower().strip()
+    if not term:
+        return False
+    # Short abbreviations need word boundaries so e.g. 'tki' does not match inside another word.
+    if re.fullmatch(r"[a-z0-9+-]{2,6}", term):
+        return re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text) is not None
+    return term in text
+
+def infer_treatment_tags(row: pd.Series) -> list[str]:
+    """Return conservative treatment tags inferred from a paper plus original API tags."""
+    existing = [normalize_treatment(x) for x in _iter_treatment_values(row.get("treatmentTypes", [])) if str(x).strip()]
+    tags: list[str] = list(dict.fromkeys(existing))
+
+    title = _normalized_text(row.get("pubmed_title", "")) or _normalized_text(row.get("title", ""))
+    abstract = _normalized_text(row.get("pubmed_abstract", "")) or _normalized_text(row.get("abstract", ""))
+    mesh = _normalized_text(row.get("mesh_terms", ""))
+
+    for treatment, groups in TREATMENT_INFERENCE_RULES.items():
+        if treatment in tags:
+            continue
+        score = 0
+        for term in groups.get("strong", []):
+            if _contains_treatment_term(title, term):
+                score += 5
+            if _contains_treatment_term(mesh, term):
+                score += 4
+            if _contains_treatment_term(abstract, term):
+                score += 2
+        for term in groups.get("support", []):
+            if _contains_treatment_term(title, term):
+                score += 4
+            if _contains_treatment_term(mesh, term):
+                score += 3
+            if _contains_treatment_term(abstract, term):
+                score += 1
+
+        # A treatment named in the title/MeSH is enough. Abstract-only mentions need
+        # multiple signals, which avoids tagging papers that merely mention a therapy.
+        if score >= 4:
+            tags.append(treatment)
+
+    return tags
+
+def enrich_treatment_tags(papers_df: pd.DataFrame) -> pd.DataFrame:
+    if papers_df is None or papers_df.empty:
+        return pd.DataFrame() if papers_df is None else papers_df.copy()
+    tagged = papers_df.copy()
+    tagged["treatmentTypes"] = tagged.apply(infer_treatment_tags, axis=1)
+    return tagged
+
 def treatment_counts_from_papers(papers_df: pd.DataFrame) -> pd.Series:
     values: list[str] = []
     if papers_df is not None and not papers_df.empty and "treatmentTypes" in papers_df.columns:
@@ -253,7 +374,8 @@ def build_relevant_research_set(papers_df: pd.DataFrame, cancer_type: str, targe
                 without_id = combined[ids.eq("")]
                 combined = pd.concat([with_id, without_id], ignore_index=True, sort=False)
             relevant = filter_cancer_relevant_papers(combined, cancer_type, min_score=10)
-    return relevant.head(target_count).reset_index(drop=True)
+    relevant = relevant.head(target_count).reset_index(drop=True)
+    return enrich_treatment_tags(relevant)
 
 def _parse_pubmed_date(article: ET.Element) -> str:
     for path in [
