@@ -255,75 +255,130 @@ def search_pubmed_cancer_papers(cancer_type: str, limit: int = 40) -> pd.DataFra
 # --- Conservative treatment inference -------------------------------------------
 TREATMENT_PATTERNS: dict[str, dict[str, list[str]]] = {
     "chemotherapy": {
-        "strong": [r"\bchemotherap(?:y|ies)\b", r"\bdocetaxel\b", r"\bpaclitaxel\b", r"\bdoxorubicin\b", r"\bcyclophosphamide\b", r"\bcarboplatin\b", r"\bcisplatin\b", r"\bcapecitabine\b"],
+        "strong": [
+            r"\bchemotherap(?:y|ies)\b", r"\bchemoradiotherap(?:y|ies)\b", r"\bchemoradiation\b",
+            r"\bdocetaxel\b", r"\bpaclitaxel\b", r"\bdoxorubicin\b", r"\bcyclophosphamide\b",
+            r"\bcarboplatin\b", r"\bcisplatin\b", r"\bcapecitabine\b", r"\bgemcitabine\b",
+            r"\betoposide\b", r"\bpemetrexed\b", r"\bvinorelbine\b", r"\boxaliplatin\b",
+            r"\b5[- ]?fluorouracil\b", r"\b5[- ]?fu\b",
+        ],
         "support": [r"\bcytotoxic (?:drug|therapy|treatment)s?\b", r"\bchemotherapeutic(?:s| agents?)?\b"],
     },
     "immunotherapy": {
-        "strong": [r"\bimmunotherap(?:y|ies)\b", r"\bimmune checkpoint inhibitor(?:s)?\b", r"\bcheckpoint blockade\b", r"\bpd-?1 inhibitor(?:s)?\b", r"\bpd-?l1 inhibitor(?:s)?\b", r"\bcar[- ]t(?: cell)? therap(?:y|ies)\b", r"\bpembrolizumab\b", r"\batezolizumab\b", r"\bnivolumab\b"],
+        "strong": [
+            r"\bimmunotherap(?:y|ies)\b", r"\bimmune checkpoint inhibitor(?:s)?\b",
+            r"\bcheckpoint blockade\b", r"\bpd-?1 inhibitor(?:s)?\b", r"\bpd-?l1 inhibitor(?:s)?\b",
+            r"\bcar[- ]t(?: cell)? therap(?:y|ies)\b", r"\bpembrolizumab\b", r"\batezolizumab\b",
+            r"\bnivolumab\b", r"\bdurvalumab\b", r"\bipilimumab\b",
+        ],
         "support": [r"\bimmune[- ]based therap(?:y|ies)\b", r"\bimmunomodulatory treatment\b"],
     },
     "targeted therapy": {
-        "strong": [r"\btargeted therap(?:y|ies)\b", r"\btyrosine kinase inhibitor(?:s)?\b", r"\bcdk4/?6 inhibitor(?:s)?\b", r"\bparp inhibitor(?:s)?\b", r"\btrastuzumab(?: deruxtecan)?\b", r"\bpertuzumab\b", r"\bolaparib\b", r"\btucatinib\b"],
+        "strong": [
+            r"\btargeted therap(?:y|ies)\b", r"\btyrosine kinase inhibitor(?:s)?\b",
+            r"\begfr[- ]tki(?:s)?\b", r"\balk inhibitor(?:s)?\b", r"\bcdk4/?6 inhibitor(?:s)?\b",
+            r"\bparp inhibitor(?:s)?\b", r"\btrastuzumab(?: deruxtecan)?\b", r"\bpertuzumab\b",
+            r"\bolaparib\b", r"\btucatinib\b", r"\bosimertinib\b", r"\bgefitinib\b",
+            r"\berlotinib\b", r"\balectinib\b", r"\blorlatinib\b",
+        ],
         "support": [r"\bher2[- ]targeted\b", r"\bmolecularly targeted\b"],
     },
     "hormone therapy": {
-        "strong": [r"\bhormone therap(?:y|ies)\b", r"\bhormonal therap(?:y|ies)\b", r"\bendocrine therap(?:y|ies)\b", r"\btamoxifen\b", r"\baromatase inhibitor(?:s)?\b", r"\bfulvestrant\b"],
+        "strong": [
+            r"\bhormone therap(?:y|ies)\b", r"\bhormonal therap(?:y|ies)\b",
+            r"\bendocrine therap(?:y|ies)\b", r"\btamoxifen\b", r"\baromatase inhibitor(?:s)?\b",
+            r"\bfulvestrant\b", r"\bletrozole\b", r"\banastrozole\b", r"\bexemestane\b",
+        ],
         "support": [r"\bestrogen receptor[- ]targeted\b", r"\banti[- ]estrogen therap(?:y|ies)\b"],
     },
     "radiation": {
-        "strong": [r"\bradiation therap(?:y|ies)\b", r"\bradiotherap(?:y|ies)\b", r"\bexternal beam radiation\b", r"\bstereotactic (?:body )?radiation therap(?:y|ies)\b", r"\bbrachytherap(?:y|ies)\b"],
-        "support": [r"\bchemoradiation\b", r"\bchemoradiotherapy\b"],
+        "strong": [
+            r"\bradiation therap(?:y|ies)\b", r"\bradiotherap(?:y|ies)\b",
+            r"\bexternal beam radiation\b", r"\bstereotactic (?:body )?radiation therap(?:y|ies)\b",
+            r"\bbrachytherap(?:y|ies)\b", r"\bchemoradiotherap(?:y|ies)\b", r"\bchemoradiation\b",
+        ],
+        "support": [],
     },
     "surgery": {
-        "strong": [r"\bmastectom(?:y|ies)\b", r"\blumpectom(?:y|ies)\b", r"\bbreast[- ]conserving surgery\b", r"\btumou?r resection\b", r"\bsurgical resection\b", r"\bnephrectom(?:y|ies)\b", r"\bprostatectom(?:y|ies)\b", r"\bcolectom(?:y|ies)\b"],
+        "strong": [
+            r"\bsurger(?:y|ies)\b", r"\bsurgical resection\b", r"\btumou?r resection\b",
+            r"\bmastectom(?:y|ies)\b", r"\blumpectom(?:y|ies)\b", r"\bbreast[- ]conserving surgery\b",
+            r"\bnephrectom(?:y|ies)\b", r"\bprostatectom(?:y|ies)\b", r"\bcolectom(?:y|ies)\b",
+            r"\blobectom(?:y|ies)\b", r"\bpneumonectom(?:y|ies)\b", r"\bcraniotom(?:y|ies)\b",
+        ],
         "support": [r"\bsurgical treatment\b", r"\bsurgical therap(?:y|ies)\b"],
     },
     "stem cell transplant": {
-        # Deliberately requires transplantation language.  "Cancer stem cell" and
-        # "stem-like" describe tumour biology and must never trigger this tag.
-        "strong": [r"\bstem cell transplant(?:ation)?s?\b", r"\bhematopoietic stem cell transplant(?:ation)?s?\b", r"\bhaematopoietic stem cell transplant(?:ation)?s?\b", r"\bhsct\b", r"\bbone marrow transplant(?:ation)?s?\b", r"\bautologous stem cell transplant(?:ation)?s?\b", r"\ballogeneic stem cell transplant(?:ation)?s?\b"],
+        # This category is intentionally strict. Tumour "stemness", "cancer stem cells",
+        # "stem-like phenotype", etc. are biology terms, not transplantation.
+        "strong": [
+            r"\bstem cell transplant(?:ation)?s?\b",
+            r"\bhematopoietic stem cell transplant(?:ation)?s?\b",
+            r"\bhaematopoietic stem cell transplant(?:ation)?s?\b",
+            r"\bhematopoietic cell transplant(?:ation)?s?\b",
+            r"\bhaematopoietic cell transplant(?:ation)?s?\b",
+            r"\bhsct\b",
+            r"\bbone marrow transplant(?:ation)?s?\b",
+            r"\bautologous stem cell transplant(?:ation)?s?\b",
+            r"\ballogeneic stem cell transplant(?:ation)?s?\b",
+        ],
         "support": [],
     },
 }
 
 
 def infer_treatment_tags(row: pd.Series) -> list[str]:
-    existing = [normalize_treatment(x) for x in _iter_treatment_values(row.get("treatmentTypes", [])) if str(x).strip()]
+    """Build final treatment tags from paper evidence, not from unverified API labels.
+
+    The external API's treatmentTypes can be useful hints, but they are not trusted as
+    final labels. Every displayed tag must be supported by the PubMed-enriched title,
+    abstract, or MeSH terms. Journal names are deliberately excluded.
+    """
     title = _normalized_text(row.get("pubmed_title", "")) or _normalized_text(row.get("title", ""))
     abstract = _normalized_text(row.get("pubmed_abstract", "")) or _normalized_text(row.get("abstract", ""))
     mesh = _normalized_text(row.get("mesh_terms", ""))
-    tags = list(dict.fromkeys(existing))
 
-    # Stem-cell transplantation is a specific clinical treatment. Never trust a
-    # pre-existing/API tag by itself: keep it only when the PubMed evidence contains
-    # explicit transplantation language (HSCT, bone-marrow transplant, etc.). This
-    # prevents cancer stem cells, stem-like phenotypes, and stemness research from
-    # being mislabeled as stem-cell transplantation.
-    full_evidence = f"{title} {mesh} {abstract}"
+    title_or_mesh = f"{title} {mesh}".strip()
+    full_evidence = f"{title} {mesh} {abstract}".strip()
+    tags: list[str] = []
 
+    # If PubMed enrichment is unavailable, fall back to the API title/abstract above;
+    # still require textual evidence rather than trusting treatmentTypes by itself.
     for treatment, patterns in TREATMENT_PATTERNS.items():
-        if treatment in tags:
-            if treatment == "stem cell transplant" and not any(
-                re.search(p, full_evidence) for p in patterns["strong"]
-            ):
-                tags.remove(treatment)
-            continue
         strong = patterns["strong"]
         support = patterns["support"]
-        # Title and MeSH are high-confidence. Abstract-only tagging is deliberately
-        # stricter: an explicit treatment phrase/drug must occur, not a generic word.
-        title_or_mesh = f"{title} {mesh}"
-        if any(re.search(p, title_or_mesh) for p in strong):
+
+        # Explicit treatment names/drugs are acceptable in title/MeSH or abstract.
+        if any(re.search(pattern, title_or_mesh) for pattern in strong):
             tags.append(treatment)
-        elif any(re.search(p, abstract) for p in strong):
+            continue
+        if any(re.search(pattern, abstract) for pattern in strong):
             tags.append(treatment)
-        elif support and any(re.search(p, title_or_mesh) for p in support):
+            continue
+
+        # Weaker synonyms are accepted only in the higher-confidence title/MeSH fields.
+        if support and any(re.search(pattern, title_or_mesh) for pattern in support):
             tags.append(treatment)
 
-    # Photodynamic therapy uses a photosensitizer/light; it is not radiation therapy.
-    if "radiation" in tags and "photodynamic therap" in f"{title} {abstract} {mesh}":
-        if not re.search(r"\bradiation therap|\bradiotherap|\bexternal beam radiation|\bbrachytherap|\bchemoradi", f"{title} {abstract} {mesh}"):
+    # Defensive exclusions for common semantic traps.
+    evidence = full_evidence
+
+    # Photodynamic therapy uses light/photosensitizers and is not ionizing-radiation therapy.
+    if "radiation" in tags and "photodynamic therap" in evidence:
+        true_radiation = re.search(
+            r"\bradiation therap|\bradiotherap|\bexternal beam radiation|\bbrachytherap|\bchemoradi",
+            evidence,
+        )
+        if not true_radiation:
             tags.remove("radiation")
+
+    # Never let tumour stem-cell biology masquerade as a transplant. Even if a paper
+    # contains "stem cell", only explicit transplant phrases above can create this tag.
+    if "stem cell transplant" in tags:
+        transplant_patterns = TREATMENT_PATTERNS["stem cell transplant"]["strong"]
+        if not any(re.search(pattern, evidence) for pattern in transplant_patterns):
+            tags.remove("stem cell transplant")
+
     return list(dict.fromkeys(tags))
 
 
