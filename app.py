@@ -70,6 +70,12 @@ h1,h2,h3{color:var(--navy)!important;letter-spacing:-.02em}
 div[data-testid="stMetric"]{background:white;border:1px solid var(--line);border-radius:18px;padding:1rem 1.1rem;box-shadow:0 7px 20px rgba(23,54,77,.04)}
 .stButton>button,.stLinkButton>a{border-radius:12px!important}
 @media(max-width:800px){.hero{padding:1.6rem}.hero h1{font-size:2.2rem}.block-container{padding-left:1rem;padding-right:1rem}}
+
+div.stDownloadButton > button {
+    min-height: 42px;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -484,13 +490,18 @@ def graph_page() -> None:
         st.vega_lite_chart(
             treatment_df,
             {
-                "mark": {"type": "bar", "cornerRadiusEnd": 5},
+                "background": "transparent",
+                "config": {
+                    "view": {"stroke": None},
+                    "axis": {"labelFontSize": 13, "titleFontSize": 12},
+                },
+                "mark": {"type": "bar", "cornerRadiusEnd": 6},
                 "encoding": {
                     "y": {
                         "field": "Treatment",
                         "type": "nominal",
                         "sort": "-x",
-                        "axis": {"title": None, "labelLimit": 220},
+                        "axis": {"title": None, "labelLimit": 240, "labelPadding": 8},
                     },
                     "x": {
                         "field": "Papers",
@@ -502,7 +513,7 @@ def graph_page() -> None:
                         {"field": "Papers", "type": "quantitative", "format": "d"},
                     ],
                 },
-                "height": {"step": 42},
+                "height": {"step": 48},
             },
             use_container_width=True,
         )
@@ -521,7 +532,16 @@ def graph_page() -> None:
         st.vega_lite_chart(
             timeline_df,
             {
-                "mark": {"type": "line", "point": True},
+                "background": "transparent",
+                "config": {
+                    "view": {"stroke": None},
+                    "axis": {"labelFontSize": 13, "titleFontSize": 12},
+                },
+                "mark": {
+                    "type": "line",
+                    "strokeWidth": 3,
+                    "point": {"filled": True, "size": 90},
+                },
                 "encoding": {
                     "x": {
                         "field": "Year",
@@ -539,7 +559,7 @@ def graph_page() -> None:
                         {"field": "Papers", "type": "quantitative", "format": "d"},
                     ],
                 },
-                "height": 300,
+                "height": 330,
             },
             use_container_width=True,
         )
@@ -550,13 +570,18 @@ def graph_page() -> None:
         st.vega_lite_chart(
             journal_df,
             {
-                "mark": {"type": "bar", "cornerRadiusEnd": 5},
+                "background": "transparent",
+                "config": {
+                    "view": {"stroke": None},
+                    "axis": {"labelFontSize": 12, "titleFontSize": 12},
+                },
+                "mark": {"type": "bar", "cornerRadiusEnd": 6},
                 "encoding": {
                     "y": {
                         "field": "Journal",
                         "type": "nominal",
                         "sort": "-x",
-                        "axis": {"title": None, "labelLimit": 300},
+                        "axis": {"title": None, "labelLimit": 380, "labelPadding": 8},
                     },
                     "x": {
                         "field": "Papers",
@@ -568,7 +593,7 @@ def graph_page() -> None:
                         {"field": "Papers", "type": "quantitative", "format": "d"},
                     ],
                 },
-                "height": {"step": 42},
+                "height": {"step": 48},
             },
             use_container_width=True,
         )
