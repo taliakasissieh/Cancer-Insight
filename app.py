@@ -70,143 +70,6 @@ h1,h2,h3{color:var(--navy)!important;letter-spacing:-.02em}
 div[data-testid="stMetric"]{background:white;border:1px solid var(--line);border-radius:18px;padding:1rem 1.1rem;box-shadow:0 7px 20px rgba(23,54,77,.04)}
 .stButton>button,.stLinkButton>a{border-radius:12px!important}
 @media(max-width:800px){.hero{padding:1.6rem}.hero h1{font-size:2.2rem}.block-container{padding-left:1rem;padding-right:1rem}}
-
-div.stDownloadButton > button {
-    min-height: 42px;
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-}
-
-/* ---------- Final professional polish ---------- */
-.block-container{
-    padding-top:1.65rem!important;
-    padding-bottom:2.5rem!important;
-    max-width:1200px!important;
-}
-h1{font-size:2.35rem!important;line-height:1.12!important;margin-bottom:.9rem!important}
-h2{font-size:1.65rem!important;line-height:1.2!important;margin-top:1.45rem!important}
-h3{font-size:1.18rem!important;line-height:1.25!important;margin-top:1.1rem!important}
-p,li{line-height:1.58}
-[data-testid="stCaptionContainer"], .stCaption{
-    color:#657F8F!important;
-    font-size:.86rem!important;
-    line-height:1.45!important;
-}
-.paper-card{
-    padding:1.18rem 1.3rem!important;
-    margin-top:.75rem!important;
-    margin-bottom:.55rem!important;
-    transition:box-shadow .15s ease,border-color .15s ease;
-}
-.paper-card:hover{
-    border-color:#BDD8DF!important;
-    box-shadow:0 10px 28px rgba(23,54,77,.075)!important;
-}
-.finding{
-    padding:.82rem 1rem!important;
-    line-height:1.5!important;
-    border-left-width:3px!important;
-}
-.source-card{
-    padding:.95rem 1.05rem!important;
-}
-.section-note{
-    line-height:1.5!important;
-}
-div[data-testid="stMetric"]{
-    min-height:92px;
-}
-div[data-testid="stMetric"] label{
-    color:#6E8796!important;
-    font-size:.78rem!important;
-}
-div[data-testid="stMetric"] [data-testid="stMetricValue"]{
-    color:#17364D!important;
-    font-weight:750!important;
-}
-.stButton>button,
-.stLinkButton>a,
-div.stDownloadButton>button{
-    min-height:42px!important;
-    border-radius:10px!important;
-    font-weight:650!important;
-    border:1px solid #C9D9E1!important;
-    box-shadow:none!important;
-}
-.stButton>button:hover,
-.stLinkButton>a:hover,
-div.stDownloadButton>button:hover{
-    border-color:#168F96!important;
-    color:#126B70!important;
-}
-button[data-testid="baseButton-primary"],
-div.stDownloadButton button[data-testid="baseButton-primary"],
-div[data-testid="stFormSubmitButton"] button{
-    background:linear-gradient(90deg,#168F96,#1BA8A0)!important;
-    color:white!important;
-    border:none!important;
-}
-button[data-testid="baseButton-primary"]:hover,
-div.stDownloadButton button[data-testid="baseButton-primary"]:hover,
-div[data-testid="stFormSubmitButton"] button:hover{
-    background:linear-gradient(90deg,#137C83,#168F96)!important;
-    color:white!important;
-}
-[data-testid="stDataFrame"]{
-    border:1px solid #D6E2E8!important;
-    border-radius:14px!important;
-    overflow:hidden!important;
-}
-[data-testid="stImage"] img{
-    max-height:250px!important;
-    width:100%!important;
-    object-fit:contain!important;
-    background:#FFFFFF!important;
-    border-radius:12px!important;
-}
-[data-testid="stImage"]{
-    background:#FFFFFF!important;
-    border-radius:12px!important;
-}
-.image-note{
-    color:#6E8796;
-    font-size:.84rem;
-    line-height:1.45;
-}
-.about-intro{
-    max-width:900px;
-    font-size:1.02rem;
-    line-height:1.7;
-    color:#36576B;
-}
-.about-card{
-    max-width:980px;
-    background:#FFFFFF;
-    border:1px solid #D6E2E8;
-    border-radius:18px;
-    padding:1.15rem 1.25rem;
-    margin:.8rem 0;
-    box-shadow:0 7px 20px rgba(23,54,77,.035);
-}
-.about-card h3{
-    margin-top:0!important;
-}
-.compare-section{
-    margin-top:.4rem;
-}
-.small-empty{
-    color:#78909C;
-    font-size:.88rem;
-    padding:.8rem 1rem;
-    background:#F8FBFC;
-    border:1px dashed #D6E2E8;
-    border-radius:12px;
-}
-@media(max-width:900px){
-    .block-container{max-width:100%!important}
-    h1{font-size:2rem!important}
-}
-
 </style>
 """,
     unsafe_allow_html=True,
@@ -395,9 +258,8 @@ def render_paper(row: pd.Series, number: int | None = None, compact: bool = Fals
     if author_text and not compact: st.caption(author_text)
 
     treatment_value = row.get("treatmentTypes", "")
-    treatment_text = format_value(treatment_value).strip()
-    if treatment_text and treatment_text not in {"[]", "nan", "None"}:
-        st.markdown(f"**Treatments mentioned in evidence:** {treatment_text}")
+    if treatment_value not in [None, ""]:
+        st.markdown(f"**Treatments mentioned in evidence:** {format_value(treatment_value)}")
 
     abstract = best_abstract(row)
     if abstract:
@@ -511,7 +373,7 @@ def search_page() -> None:
     """, unsafe_allow_html=True)
     with st.form("search_form"):
         cancer = st.text_input("Cancer type", value=st.session_state.cancer_type, placeholder="For example: lung")
-        submitted = st.form_submit_button("Search research", use_container_width=True, type="primary")
+        submitted = st.form_submit_button("Search research", use_container_width=True)
     if submitted:
         try:
             with st.spinner("Searching and enriching papers with PubMed metadata…"):
@@ -531,42 +393,8 @@ def search_page() -> None:
                 st.markdown(f'<div class="finding">{html.escape(finding)}</div>', unsafe_allow_html=True)
         if not st.session_state.treatments.empty:
             st.markdown("### Treatment research coverage")
-            chart_df = (
-                st.session_state.treatments
-                .rename("Papers")
-                .rename_axis("Treatment")
-                .reset_index()
-            )
-            st.vega_lite_chart(
-                chart_df,
-                {
-                    "background": "transparent",
-                    "config": {
-                        "view": {"stroke": None},
-                        "axis": {"labelFontSize": 12, "titleFontSize": 11},
-                    },
-                    "mark": {"type": "bar", "cornerRadiusEnd": 6},
-                    "encoding": {
-                        "y": {
-                            "field": "Treatment",
-                            "type": "nominal",
-                            "sort": "-x",
-                            "axis": {"title": None, "labelLimit": 230, "labelPadding": 8},
-                        },
-                        "x": {
-                            "field": "Papers",
-                            "type": "quantitative",
-                            "axis": {"title": "Papers", "tickMinStep": 1, "format": "d"},
-                        },
-                        "tooltip": [
-                            {"field": "Treatment", "type": "nominal"},
-                            {"field": "Papers", "type": "quantitative", "format": "d"},
-                        ],
-                    },
-                    "height": {"step": 44},
-                },
-                use_container_width=True,
-            )
+            chart_df = st.session_state.treatments.rename("Papers").to_frame()
+            st.bar_chart(chart_df, use_container_width=True)
 
 
 def research_page() -> None:
@@ -643,126 +471,15 @@ def graph_page() -> None:
     if not require_results(): return
     profile = research_profile(st.session_state.papers)
     render_metrics(profile, len(st.session_state.treatments))
-
     st.markdown("### Treatment coverage")
-    if not st.session_state.treatments.empty:
-        treatment_df = (
-            st.session_state.treatments
-            .rename("Papers")
-            .rename_axis("Treatment")
-            .reset_index()
-        )
-        st.vega_lite_chart(
-            treatment_df,
-            {
-                "background": "transparent",
-                "config": {
-                    "view": {"stroke": None},
-                    "axis": {"labelFontSize": 13, "titleFontSize": 12},
-                },
-                "mark": {"type": "bar", "cornerRadiusEnd": 6},
-                "encoding": {
-                    "y": {
-                        "field": "Treatment",
-                        "type": "nominal",
-                        "sort": "-x",
-                        "axis": {"title": None, "labelLimit": 240, "labelPadding": 8},
-                    },
-                    "x": {
-                        "field": "Papers",
-                        "type": "quantitative",
-                        "axis": {"title": "Papers", "tickMinStep": 1, "format": "d"},
-                    },
-                    "tooltip": [
-                        {"field": "Treatment", "type": "nominal"},
-                        {"field": "Papers", "type": "quantitative", "format": "d"},
-                    ],
-                },
-                "height": {"step": 48},
-            },
-            use_container_width=True,
-        )
-    else:
-        st.info("No validated treatment mentions were identified in this result set.")
-
+    st.bar_chart(st.session_state.treatments.rename("Papers"), use_container_width=True)
     if not profile["year_counts"].empty:
         st.markdown("### Publication timeline")
-        timeline_df = (
-            profile["year_counts"]
-            .rename("Papers")
-            .rename_axis("Year")
-            .reset_index()
-        )
-        timeline_df["Year"] = timeline_df["Year"].astype(int).astype(str)
-        st.vega_lite_chart(
-            timeline_df,
-            {
-                "background": "transparent",
-                "config": {
-                    "view": {"stroke": None},
-                    "axis": {"labelFontSize": 13, "titleFontSize": 12},
-                },
-                "mark": {
-                    "type": "line",
-                    "strokeWidth": 3,
-                    "point": {"filled": True, "size": 90},
-                },
-                "encoding": {
-                    "x": {
-                        "field": "Year",
-                        "type": "ordinal",
-                        "sort": "ascending",
-                        "axis": {"title": "Publication year", "labelAngle": 0},
-                    },
-                    "y": {
-                        "field": "Papers",
-                        "type": "quantitative",
-                        "axis": {"title": "Papers", "tickMinStep": 1, "format": "d"},
-                    },
-                    "tooltip": [
-                        {"field": "Year", "type": "ordinal"},
-                        {"field": "Papers", "type": "quantitative", "format": "d"},
-                    ],
-                },
-                "height": 330,
-            },
-            use_container_width=True,
-        )
-
+        st.line_chart(profile["year_counts"].rename("Papers"), use_container_width=True)
     if profile["top_journals"]:
         st.markdown("### Top journals")
-        journal_df = pd.DataFrame(profile["top_journals"], columns=["Journal", "Papers"])
-        st.vega_lite_chart(
-            journal_df,
-            {
-                "background": "transparent",
-                "config": {
-                    "view": {"stroke": None},
-                    "axis": {"labelFontSize": 12, "titleFontSize": 12},
-                },
-                "mark": {"type": "bar", "cornerRadiusEnd": 6},
-                "encoding": {
-                    "y": {
-                        "field": "Journal",
-                        "type": "nominal",
-                        "sort": "-x",
-                        "axis": {"title": None, "labelLimit": 380, "labelPadding": 8},
-                    },
-                    "x": {
-                        "field": "Papers",
-                        "type": "quantitative",
-                        "axis": {"title": "Papers", "tickMinStep": 1, "format": "d"},
-                    },
-                    "tooltip": [
-                        {"field": "Journal", "type": "nominal"},
-                        {"field": "Papers", "type": "quantitative", "format": "d"},
-                    ],
-                },
-                "height": {"step": 48},
-            },
-            use_container_width=True,
-        )
-
+        journal_df = pd.DataFrame(profile["top_journals"], columns=["Journal","Papers"]).set_index("Journal")
+        st.bar_chart(journal_df, use_container_width=True)
     st.markdown("### Download report")
     report_pdf = build_research_report_pdf(st.session_state.cancer_type, st.session_state.papers, st.session_state.treatments)
     d1, d2 = st.columns([1.4, 1])
@@ -812,73 +529,6 @@ def treatment_page() -> None:
         for i, (_, row) in enumerate(rank_evidence(evidence).head(8).iterrows(), 1): render_paper(row, i, compact=True)
 
 
-
-def render_comparison_section(
-    title: str,
-    left_items: list[dict[str, Any]],
-    right_items: list[dict[str, Any]],
-) -> None:
-    """Render matching treatment evidence sections side-by-side for visual balance."""
-    st.markdown(f"### {title}")
-    left, right = st.columns(2, gap="medium")
-    with left:
-        if left_items:
-            for item in left_items[:2]:
-                suffix = _citation_suffix(item)
-                st.markdown(
-                    f'<div class="finding">{html.escape(item["text"])}{suffix}</div>',
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.markdown(
-                '<div class="small-empty">No additional statement was generated from the retrieved evidence for this section.</div>',
-                unsafe_allow_html=True,
-            )
-    with right:
-        if right_items:
-            for item in right_items[:2]:
-                suffix = _citation_suffix(item)
-                st.markdown(
-                    f'<div class="finding">{html.escape(item["text"])}{suffix}</div>',
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.markdown(
-                '<div class="small-empty">No additional statement was generated from the retrieved evidence for this section.</div>',
-                unsafe_allow_html=True,
-            )
-
-
-def render_comparison_overviews(t1: str, e1: pd.DataFrame, t2: str, e2: pd.DataFrame) -> None:
-    """Render two treatment overviews in synchronized rows instead of uneven columns."""
-    cancer = st.session_state.cancer_type
-    o1 = synthesize_treatment_overview(cancer, t1, e1)
-    o2 = synthesize_treatment_overview(cancer, t2, e2)
-
-    left, right = st.columns(2, gap="medium")
-    with left:
-        st.markdown(f"## {display_treatment(t1)} — {cancer.title()} cancer")
-        st.markdown("### What is this treatment?")
-        st.write(o1["definition"])
-    with right:
-        st.markdown(f"## {display_treatment(t2)} — {cancer.title()} cancer")
-        st.markdown("### What is this treatment?")
-        st.write(o2["definition"])
-
-    st.caption(
-        "Definitions are written in plain language. Cancer-specific statements below are synthesized "
-        "from PubMed-indexed evidence and linked to supporting PMID(s)."
-    )
-
-    for heading, key in [
-        ("How it is used", "use"),
-        ("Potential benefits and outcomes studied", "benefits"),
-        ("Risks, limitations, and challenges", "limitations"),
-        ("Current research directions", "directions"),
-    ]:
-        render_comparison_section(heading, o1.get(key, []), o2.get(key, []))
-
-
 def compare_page() -> None:
     st.title("Compare Treatments")
     if not require_results(): return
@@ -902,7 +552,9 @@ def compare_page() -> None:
 
     st.markdown('<div class="section-note"><strong>How to read this comparison:</strong> the descriptions explain each treatment, while the numbers compare the retrieved research evidence. More papers or newer studies do not mean one treatment is medically better.</div>', unsafe_allow_html=True)
 
-    render_comparison_overviews(t1, e1, t2, e2)
+    left, right = st.columns(2)
+    with left: render_overview(t1, e1, compact=True)
+    with right: render_overview(t2, e2, compact=True)
 
     st.markdown("## Research Comparison")
     comparison = pd.DataFrame({
@@ -948,66 +600,31 @@ def images_page() -> None:
     if not images:
         st.info("No sufficiently relevant scientific images were returned for this cancer type.")
         return
-    cols = st.columns(3, gap="medium")
+    cols = st.columns(3)
     for i, img in enumerate(images):
         with cols[i % 3]:
-            with st.container(border=True):
-                st.image(img["thumbnail"], use_container_width=True)
-                st.markdown(f"**{html.escape(img['title'])}**")
-                if img.get("description"):
-                    cleaned = re.sub(r'<[^>]+>', '', img['description']).strip()
-                    if cleaned:
-                        st.caption(cleaned[:145] + ("…" if len(cleaned) > 145 else ""))
-                meta_parts = []
-                if img.get("license"):
-                    meta_parts.append(f"License: {re.sub('<[^>]+>','',img['license'])}")
-                if img.get("artist"):
-                    creator = re.sub(r'<[^>]+>', '', img['artist']).strip()
-                    if creator:
-                        meta_parts.append(f"Creator: {creator[:85]}{'…' if len(creator) > 85 else ''}")
-                if meta_parts:
-                    st.caption(" · ".join(meta_parts))
-                st.link_button("Open original source", img["original"], use_container_width=True)
+            st.image(img["thumbnail"], use_container_width=True)
+            st.markdown(f"**{html.escape(img['title'])}**")
+            if img.get("description"):
+                cleaned = re.sub(r'<[^>]+>', '', img['description']).strip()
+                if cleaned:
+                    st.caption(cleaned[:180] + ("…" if len(cleaned) > 180 else ""))
+            if img.get("license"):
+                st.caption(f"License: {re.sub('<[^>]+>','',img['license'])}")
+            if img.get("artist"):
+                st.caption(f"Creator: {re.sub('<[^>]+>','',img['artist'])[:120]}")
+            st.link_button("Open original source", img["original"], use_container_width=True)
 
 
 def about_page() -> None:
     st.title("About Cancer Insight")
-    st.markdown(
-        '<div class="about-intro">Cancer Insight is an educational cancer-research exploration platform. '
-        'It combines a cancer-research API with PubMed/NCBI metadata so users can inspect papers, '
-        'research themes, treatment evidence, and free-full-text availability while keeping the '
-        'original sources visible.</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        '<div class="about-card"><h3>How treatment descriptions work</h3>'
-        '<p>Cancer Insight gives a plain-language definition of the treatment itself, then displays '
-        'cancer-specific statements synthesized from multiple PubMed-indexed abstracts. Each displayed '
-        'research statement is linked back to identifiable PubMed sources through PMID references and '
-        'source cards.</p></div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        '<div class="about-card"><h3>Access labels</h3>'
-        '<p><strong>Free full text in PMC</strong> — freely readable in PubMed Central; this does not '
-        'automatically mean unrestricted reuse.</p>'
-        '<p><strong>Full-text source link</strong> — a publisher or research-source link is available; '
-        'access rules may vary.</p>'
-        '<p><strong>PubMed abstract</strong> — an abstract is available even if Cancer Insight did not '
-        'identify a free PMC copy.</p></div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        '<div class="about-card"><h3>Limitations</h3>'
-        '<p>Paper counts and research summaries describe retrieved literature, not treatment '
-        'effectiveness, safety, or suitability for an individual patient. Automated extraction can '
-        'miss context, so users should read the cited papers and consult qualified healthcare '
-        'professionals for personal medical decisions.</p></div>',
-        unsafe_allow_html=True,
-    )
+    st.write("Cancer Insight is an educational cancer-research exploration platform. It combines a cancer-research API with PubMed/NCBI metadata so users can inspect papers, research themes, treatment evidence, and free-full-text availability while keeping the original sources visible.")
+    st.subheader("How treatment descriptions work")
+    st.write("Cancer Insight gives a plain-language definition of the treatment itself, then displays cancer-specific statements extracted from multiple PubMed-indexed abstracts. Each displayed research statement is linked back to identifiable PubMed sources through PMID references and source cards.")
+    st.subheader("Access labels")
+    st.markdown("- **Free full text in PMC:** freely readable in PubMed Central; this does not automatically mean unrestricted reuse.\n- **Full-text source link:** a publisher or research-source link is available; access rules may vary.\n- **PubMed abstract:** an abstract is available even if Cancer Insight did not identify a free PMC copy.")
+    st.subheader("Limitations")
+    st.write("Paper counts and research summaries describe retrieved literature, not treatment effectiveness, safety, or suitability for an individual patient. Automated extraction can miss context, so users should read the cited papers and consult qualified healthcare professionals for personal medical decisions.")
 
 
 init_state()
