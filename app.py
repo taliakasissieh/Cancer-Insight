@@ -94,6 +94,9 @@ def init_state() -> None:
         "nav_page": "Search",
         "previous_nav_page": "Search",
         "bookmarks": [],
+        "search_input": "",
+        "search_error": "",
+        "search_notice": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -175,6 +178,17 @@ def run_search(cancer_type: str) -> None:
     st.session_state.images_for = cancer_type.strip().lower()
     st.session_state.cancer_type = cancer_type.strip()
     st.session_state.searched = True
+
+
+
+def clear_search_results() -> None:
+    """Clear previous cancer results while preserving bookmarks and navigation."""
+    st.session_state.searched = False
+    st.session_state.cancer_type = ""
+    st.session_state.papers = pd.DataFrame()
+    st.session_state.treatments = pd.Series(dtype="int64")
+    st.session_state.images = []
+    st.session_state.images_for = ""
 
 
 def require_results() -> bool:
@@ -371,16 +385,51 @@ def search_page() -> None:
     st.markdown("""
     <section class="hero"><div class="eyebrow" style="color:#7FE1E4">Evidence-first cancer research platform</div><h1>Cancer Insight</h1><p>Search cancer research, read PubMed abstracts, identify free full-text papers, explore treatment evidence, and compare research coverage without hiding the original sources.</p></section>
     """, unsafe_allow_html=True)
+
+    # Show a message saved before the clean rerun.
+    if st.session_state.get("search_error"):
+        st.error(st.session_state.search_error)
+        st.session_state.search_error = ""
+    elif st.session_state.get("search_notice"):
+        st.success(st.session_state.search_notice)
+        st.session_state.search_notice = ""
+
     with st.form("search_form"):
-        cancer = st.text_input("Cancer type", value=st.session_state.cancer_type, placeholder="For example: lung")
+        cancer = st.text_input(
+            "Cancer type",
+            key="search_input",
+            placeholder="For example: lung",
+        )
         submitted = st.form_submit_button("Search research", use_container_width=True)
+
     if submitted:
+        query = cancer.strip()
+
+        # Clear the previous cancer FIRST. This prevents stale papers, metrics,
+        # treatments, images, and sidebar counts from surviving a failed search.
+        clear_search_results()
+
+        if not query:
+            st.session_state.search_error = "Enter a cancer type to search."
+            st.rerun()
+
         try:
             with st.spinner("Searching and enriching papers with PubMed metadata…"):
-                run_search(cancer)
-            st.success(f"Found {len(st.session_state.papers)} papers for {cancer.title()}.")
+                run_search(query)
+            st.session_state.search_notice = (
+                f"Found {len(st.session_state.papers)} papers for {query.title()}."
+            )
         except CancerInsightError as exc:
-            st.error(str(exc))
+            st.session_state.search_error = str(exc)
+        except Exception:
+            st.session_state.search_error = (
+                "The research service could not complete this search right now. "
+                "Please check your connection and try again."
+            )
+
+        # Important: navigation/sidebar is rendered before this page function.
+        # Rerunning makes the entire interface use the new cleared/current state.
+        st.rerun()
 
     if st.session_state.searched:
         p = research_profile(st.session_state.papers)
@@ -390,7 +439,10 @@ def search_page() -> None:
         if findings:
             st.markdown("### Key Findings")
             for finding in findings:
-                st.markdown(f'<div class="finding">{html.escape(finding)}</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="finding">{html.escape(finding)}</div>',
+                    unsafe_allow_html=True,
+                )
         if not st.session_state.treatments.empty:
             st.markdown("### Treatment research coverage")
             chart_df = st.session_state.treatments.rename("Papers").to_frame()
