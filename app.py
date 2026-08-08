@@ -258,8 +258,9 @@ def render_paper(row: pd.Series, number: int | None = None, compact: bool = Fals
     if author_text and not compact: st.caption(author_text)
 
     treatment_value = row.get("treatmentTypes", "")
-    if treatment_value not in [None, ""]:
-        st.markdown(f"**Treatments mentioned in evidence:** {format_value(treatment_value)}")
+    treatment_text = format_value(treatment_value).strip()
+    if treatment_text and treatment_text not in {"[]", "nan", "None"}:
+        st.markdown(f"**Treatments mentioned in evidence:** {treatment_text}")
 
     abstract = best_abstract(row)
     if abstract:
@@ -471,15 +472,107 @@ def graph_page() -> None:
     if not require_results(): return
     profile = research_profile(st.session_state.papers)
     render_metrics(profile, len(st.session_state.treatments))
+
     st.markdown("### Treatment coverage")
-    st.bar_chart(st.session_state.treatments.rename("Papers"), use_container_width=True)
+    if not st.session_state.treatments.empty:
+        treatment_df = (
+            st.session_state.treatments
+            .rename("Papers")
+            .rename_axis("Treatment")
+            .reset_index()
+        )
+        st.vega_lite_chart(
+            treatment_df,
+            {
+                "mark": {"type": "bar", "cornerRadiusEnd": 5},
+                "encoding": {
+                    "y": {
+                        "field": "Treatment",
+                        "type": "nominal",
+                        "sort": "-x",
+                        "axis": {"title": None, "labelLimit": 220},
+                    },
+                    "x": {
+                        "field": "Papers",
+                        "type": "quantitative",
+                        "axis": {"title": "Papers", "tickMinStep": 1, "format": "d"},
+                    },
+                    "tooltip": [
+                        {"field": "Treatment", "type": "nominal"},
+                        {"field": "Papers", "type": "quantitative", "format": "d"},
+                    ],
+                },
+                "height": {"step": 42},
+            },
+            use_container_width=True,
+        )
+    else:
+        st.info("No validated treatment mentions were identified in this result set.")
+
     if not profile["year_counts"].empty:
         st.markdown("### Publication timeline")
-        st.line_chart(profile["year_counts"].rename("Papers"), use_container_width=True)
+        timeline_df = (
+            profile["year_counts"]
+            .rename("Papers")
+            .rename_axis("Year")
+            .reset_index()
+        )
+        timeline_df["Year"] = timeline_df["Year"].astype(int).astype(str)
+        st.vega_lite_chart(
+            timeline_df,
+            {
+                "mark": {"type": "line", "point": True},
+                "encoding": {
+                    "x": {
+                        "field": "Year",
+                        "type": "ordinal",
+                        "sort": "ascending",
+                        "axis": {"title": "Publication year", "labelAngle": 0},
+                    },
+                    "y": {
+                        "field": "Papers",
+                        "type": "quantitative",
+                        "axis": {"title": "Papers", "tickMinStep": 1, "format": "d"},
+                    },
+                    "tooltip": [
+                        {"field": "Year", "type": "ordinal"},
+                        {"field": "Papers", "type": "quantitative", "format": "d"},
+                    ],
+                },
+                "height": 300,
+            },
+            use_container_width=True,
+        )
+
     if profile["top_journals"]:
         st.markdown("### Top journals")
-        journal_df = pd.DataFrame(profile["top_journals"], columns=["Journal","Papers"]).set_index("Journal")
-        st.bar_chart(journal_df, use_container_width=True)
+        journal_df = pd.DataFrame(profile["top_journals"], columns=["Journal", "Papers"])
+        st.vega_lite_chart(
+            journal_df,
+            {
+                "mark": {"type": "bar", "cornerRadiusEnd": 5},
+                "encoding": {
+                    "y": {
+                        "field": "Journal",
+                        "type": "nominal",
+                        "sort": "-x",
+                        "axis": {"title": None, "labelLimit": 300},
+                    },
+                    "x": {
+                        "field": "Papers",
+                        "type": "quantitative",
+                        "axis": {"title": "Papers", "tickMinStep": 1, "format": "d"},
+                    },
+                    "tooltip": [
+                        {"field": "Journal", "type": "nominal"},
+                        {"field": "Papers", "type": "quantitative", "format": "d"},
+                    ],
+                },
+                "height": {"step": 42},
+            },
+            use_container_width=True,
+        )
+
     st.markdown("### Download report")
     report_pdf = build_research_report_pdf(st.session_state.cancer_type, st.session_state.papers, st.session_state.treatments)
     d1, d2 = st.columns([1.4, 1])
